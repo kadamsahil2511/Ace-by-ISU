@@ -8,6 +8,8 @@ import ProfilePage from './components/ProfilePage';
 import CourseQuestionnaire from './components/CourseQuestionnaire';
 import CourseDashboard from './components/CourseDashboard';
 import CppDashboard from './components/CppDashboard';
+import CodingEnvironment from './components/CodingEnvironment';
+import MockViva from './components/MockViva';
 
 function App() {
   const handleLogout = () => {
@@ -68,6 +70,8 @@ function App() {
           <Route path="/cpp/questionnaire" element={<CourseQuestionnaire />} />
           <Route path="/cpp/dashboard" element={<CppDashboard />} />
           <Route path="/" element={<HomePage />} />
+          <Route path="/practice" element={<CodingEnvironment />} />
+          <Route path="/mock-viva" element={<MockViva />} />
         </Routes>
 
         {/* Footer */}
@@ -152,7 +156,7 @@ function HomePage() {
         </div>
 
         <div 
-          onClick={() => navigate('/subjects')}
+          onClick={() => navigate('/practice')}
           className="bg-gray-950 p-8 rounded-xl border border-blue-900/30 hover:border-blue-600/50 transition-all cursor-pointer group"
         >
           <h3 className="text-xl font-bold text-white mb-4">Practice Coding with AI</h3>
@@ -163,7 +167,7 @@ function HomePage() {
         </div>
 
         <div 
-          onClick={() => navigate('/subjects')}
+          onClick={() => navigate('/mock-viva')}
           className="bg-gray-950 p-8 rounded-xl border border-blue-900/30 hover:border-blue-600/50 transition-all cursor-pointer group"
         >
           <h3 className="text-xl font-bold text-white mb-4">Mock Vivas with AI Companion</h3>

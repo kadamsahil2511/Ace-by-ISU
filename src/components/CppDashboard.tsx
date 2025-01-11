@@ -13,6 +13,25 @@ interface StudyPlan {
   estimatedTime: string;
 }
 
+interface CoursePreferences {
+  programming_experience: string;
+  cpp_level: string;
+  study_time: string;
+  learning_goal: string;
+  preferred_learning: string;
+}
+
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${API_KEY}`;
+
+const scrollbarHideStyles = `
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none;  /* Internet Explorer 10+ */
+  &::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+`;
+
 const CppDashboard = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
@@ -21,72 +40,84 @@ const CppDashboard = () => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Get user preferences and generate initial study plan
     const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
     if (currentUser?.coursePreferences?.cpp) {
       generateInitialPlan(currentUser.coursePreferences.cpp);
     }
   }, []);
 
-  const generateInitialPlan = async (preferences: any) => {
+  const formatResponse = (text: string) => {
+    // Remove any JSON formatting if present
+    try {
+      const parsed = JSON.parse(text);
+      return typeof parsed === 'string' ? parsed : JSON.stringify(parsed, null, 2);
+    } catch {
+      // If it's not JSON, return the text as is
+      return text;
+    }
+  };
+
+  const generateInitialPlan = async (preferences: CoursePreferences) => {
     setIsLoading(true);
     try {
-      const systemPrompt = `
-        Student Background:
-        - Programming Experience: ${preferences.programming_experience}
-        - C++ Knowledge Level: ${preferences.cpp_level}
-        - Available Study Time: ${preferences.study_time}
-        - Learning Goal: ${preferences.learning_goal}
-        - Preferred Learning Style: ${preferences.preferred_learning}
-      `;
-
-      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent', {
+      const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.REACT_APP_GEMINI_API_KEY}`
         },
         body: JSON.stringify({
           contents: [{
             role: 'user',
             parts: [{
-              text: 'Based on my background, create a detailed C++ study roadmap with topics, subtopics, and estimated completion time.'
+              text: 'Based on my background, create a detailed C++ study roadmap with topics, subtopics, and estimated completion time. Format the response in a clear, readable way.'
             }]
           }],
           systemInstruction: {
             role: 'user',
             parts: [{
-              text: systemPrompt
+              text: `You're a C++ tutor who's job is to design course and teach as per the background sent by the user. 
+              Provide responses in clear text format, not JSON.
+              Student Background:
+              - Programming Experience: ${preferences.programming_experience}
+              - C++ Knowledge Level: ${preferences.cpp_level}
+              - Available Study Time: ${preferences.study_time}
+              - Learning Goal: ${preferences.learning_goal}
+              - Preferred Learning Style: ${preferences.preferred_learning}`
             }]
           },
           generationConfig: {
             temperature: 1,
             topK: 40,
             topP: 0.95,
-            maxOutputTokens: 8192
+            maxOutputTokens: 8192,
+            responseMimeType: "text/plain"
           }
         })
       });
 
       const data = await response.json();
-      // Process the response and set the study plan
-      setStudyPlan({
-        title: 'Your Personalized C++ Learning Path',
-        description: data.text,
-        topics: [], // Parse topics from the response
-        estimatedTime: preferences.study_time
-      });
+      if (data.candidates && data.candidates[0].content) {
+        const content = formatResponse(data.candidates[0].content.parts[0].text);
+        setStudyPlan({
+          title: 'Your Personalized C++ Learning Path',
+          description: content,
+          topics: content.split('\n').filter(line => line.trim().startsWith('-')),
+          estimatedTime: preferences.study_time
+        });
 
-      // Add initial message from tutor
-      setMessages([{
-        role: 'assistant',
-        content: "Hello! I'm your C++ tutor. I've created a personalized study plan based on your background. Feel free to ask any questions about C++ concepts, and I'll help you understand them better!"
-      }]);
+        setMessages([{
+          role: 'assistant',
+          content: "Hello! I'm your C++ tutor. I've created a personalized study plan based on your background. Feel free to ask any questions about C++ concepts, and I'll help you understand them better!"
+        }]);
+      }
     } catch (error) {
       console.error('Error generating study plan:', error);
-    } finally {
-      setIsLoading(false);
+      setMessages([{
+        role: 'assistant',
+        content: 'I apologize, but I encountered an error while generating your study plan. Please try again or contact support.'
+      }]);
     }
+    setIsLoading(false);
   };
 
   const sendMessage = async () => {
@@ -105,11 +136,10 @@ const CppDashboard = () => {
       const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
       const preferences = currentUser?.coursePreferences?.cpp;
 
-      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent', {
+      const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.REACT_APP_GEMINI_API_KEY}`
         },
         body: JSON.stringify({
           contents: [
@@ -125,28 +155,37 @@ const CppDashboard = () => {
           systemInstruction: {
             role: 'user',
             parts: [{
-              text: "You're a C++ tutor who's job is to teach C++ concepts clearly and help students understand programming better."
+              text: `You're a C++ tutor who's job is to design course and teach as per the background sent by the user.
+              Format your responses in clear text, not JSON.
+              Use proper formatting with line breaks and bullet points where appropriate.`
             }]
           },
           generationConfig: {
             temperature: 1,
             topK: 40,
             topP: 0.95,
-            maxOutputTokens: 8192
+            maxOutputTokens: 8192,
+            responseMimeType: "text/plain"
           }
         })
       });
 
       const data = await response.json();
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: data.text
-      }]);
+      if (data.candidates && data.candidates[0].content) {
+        const formattedContent = formatResponse(data.candidates[0].content.parts[0].text);
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: formattedContent
+        }]);
+      }
     } catch (error) {
       console.error('Error sending message:', error);
-    } finally {
-      setIsLoading(false);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'I apologize, but I encountered an error. Please try again or contact support.'
+      }]);
     }
+    setIsLoading(false);
   };
 
   useEffect(() => {
@@ -162,14 +201,23 @@ const CppDashboard = () => {
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Study Plan Section */}
           <div className="lg:col-span-1">
-            <div className="bg-gray-900 rounded-xl border border-blue-900/30 p-6">
+            <div className="bg-gray-900 rounded-xl border border-blue-900/30 p-6 h-[600px] flex flex-col">
               <h2 className="text-2xl font-bold text-white mb-4">{studyPlan?.title}</h2>
               {isLoading && !studyPlan ? (
                 <div className="text-gray-400">Generating your personalized study plan...</div>
               ) : (
-                <div className="space-y-4">
-                  <p className="text-gray-400">{studyPlan?.description}</p>
-                  {/* Add more study plan details here */}
+                <div className="space-y-4 overflow-y-auto flex-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="text-gray-400 whitespace-pre-wrap">{studyPlan?.description}</div>
+                  {studyPlan?.topics && studyPlan.topics.length > 0 && (
+                    <div className="mt-4">
+                      <h3 className="text-lg font-semibold text-white mb-2">Key Topics:</h3>
+                      <ul className="list-disc list-inside text-gray-400">
+                        {studyPlan.topics.map((topic, index) => (
+                          <li key={index}>{topic.replace('-', '').trim()}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -180,7 +228,7 @@ const CppDashboard = () => {
             <div className="bg-gray-900 rounded-xl border border-blue-900/30 p-6 h-[600px] flex flex-col">
               <div 
                 ref={chatContainerRef}
-                className="flex-1 overflow-y-auto mb-4 space-y-4"
+                className="flex-1 overflow-y-auto mb-4 space-y-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
               >
                 {messages.map((message, index) => (
                   <div
@@ -194,7 +242,7 @@ const CppDashboard = () => {
                           : 'bg-gray-800 text-gray-300'
                       }`}
                     >
-                      {message.content}
+                      <pre className="whitespace-pre-wrap font-sans">{message.content}</pre>
                     </div>
                   </div>
                 ))}
