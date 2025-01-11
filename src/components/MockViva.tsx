@@ -2,6 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import BackButton from './BackButton';
 import { Send, Book, XCircle, Mic, MicOff, Volume2, VolumeX, Clock, History, Brain } from 'lucide-react';
 
+declare global {
+  interface Window {
+    webkitSpeechRecognition: any;
+  }
+}
+
 interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -25,7 +31,12 @@ interface InterviewSession {
 
 type Difficulty = 'Easy' | 'Medium' | 'Hard';
 
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`;
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+if (!API_KEY) {
+  console.error('Missing Gemini API key. Make sure VITE_GEMINI_API_KEY is set in your environment variables.');
+}
+
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${API_KEY}`;
 
 const topics = [
   'C++ Basics',
@@ -40,6 +51,51 @@ const topics = [
   'Multithreading'
 ];
 
+const makeApiCall = async (prompt: string) => {
+  try {
+    console.log('Making API call with key:', API_KEY?.slice(0, 5) + '...');
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          candidateCount: 1,
+          maxOutputTokens: 1024,
+          topP: 0.8,
+          topK: 40
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error('API Error Response:', errorData);
+      throw new Error(`API call failed: ${response.status} - ${errorData}`);
+    }
+
+    const data = await response.json();
+    console.log('API Response:', data);
+
+    if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+      console.error('Invalid API response structure:', data);
+      throw new Error('Invalid API response structure');
+    }
+
+    return data.candidates[0].content.parts[0].text;
+  } catch (error) {
+    console.error('API call error:', error);
+    throw error;
+  }
+};
+
 const MockViva = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
@@ -52,12 +108,12 @@ const MockViva = () => {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<typeof window.webkitSpeechRecognition>();
   const [difficulty, setDifficulty] = useState<Difficulty>('Medium');
   const [timer, setTimer] = useState(0);
   const [pastSessions, setPastSessions] = useState<InterviewSession[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-  const timerRef = useRef<NodeJS.Timeout>();
+  const timerRef = useRef<ReturnType<typeof setInterval>>();
 
   useEffect(() => {
     // Initialize speech recognition
@@ -168,70 +224,24 @@ const MockViva = () => {
     setTimer(0);
     
     try {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `You are an experienced C++ technical interviewer conducting a ${difficulty} level interview. Follow these rules:
-              1. Start with a brief introduction of yourself
-              2. Ask your first question about ${selectedTopic}
-              3. The question should be appropriate for ${difficulty} level
-              4. Focus on conceptual understanding and practical applications
-              5. Keep your response concise and clear
-              
-              Format your response as:
-              [Introduction]: (your brief introduction)
-              [First Question]: (your question)`
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            candidateCount: 1,
-            maxOutputTokens: 1024,
-            topP: 0.8,
-            topK: 40
-          },
-          safetySettings: [
-            {
-              category: "HARM_CATEGORY_HARASSMENT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_HATE_SPEECH",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            }
-          ]
-        })
-      });
+      const prompt = `You are an experienced C++ technical interviewer conducting a ${difficulty} level interview. Follow these rules:
+      1. Start with a brief introduction of yourself
+      2. Ask your first question about ${selectedTopic}
+      3. The question should be appropriate for ${difficulty} level
+      4. Focus on conceptual understanding and practical applications
+      5. Keep your response concise and clear
+      
+      Format your response as:
+      [Introduction]: (your brief introduction)
+      [First Question]: (your question)`;
 
-      if (!response.ok) {
-        throw new Error(`API call failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        const message = data.candidates[0].content.parts[0].text;
-        setMessages([{
-          role: 'assistant',
-          content: message
-        }]);
-        if (isVoiceMode) {
-          speakText(message);
-        }
-      } else {
-        throw new Error('Invalid API response structure');
+      const message = await makeApiCall(prompt);
+      setMessages([{
+        role: 'assistant',
+        content: message
+      }]);
+      if (isVoiceMode) {
+        speakText(message);
       }
     } catch (error) {
       console.error('Error starting viva:', error);
@@ -252,75 +262,29 @@ const MockViva = () => {
     setIsLoading(true);
 
     try {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `Context: You are a C++ technical interviewer conducting a ${difficulty} level interview about ${selectedTopic}.
-              Previous conversation:\n${messages.map(msg => `${msg.role === 'assistant' ? 'Interviewer' : 'Candidate'}: ${msg.content}`).join('\n')}
-              
-              Candidate's latest response: ${userMessage}
-              
-              Rules:
-              1. Maintain context of the entire conversation
-              2. Evaluate the candidate's last response
-              3. Provide brief, constructive feedback
-              4. Ask the next question at ${difficulty} level
-              5. Keep responses focused and clear
-              
-              Format your response as:
-              [Feedback]: (brief feedback on the last answer)
-              [Next Question]: (your next question)`
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            candidateCount: 1,
-            maxOutputTokens: 1024,
-            topP: 0.8,
-            topK: 40
-          },
-          safetySettings: [
-            {
-              category: "HARM_CATEGORY_HARASSMENT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_HATE_SPEECH",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            }
-          ]
-        })
-      });
+      const prompt = `Context: You are a C++ technical interviewer conducting a ${difficulty} level interview about ${selectedTopic}.
+      Previous conversation:\n${messages.map(msg => `${msg.role === 'assistant' ? 'Interviewer' : 'Candidate'}: ${msg.content}`).join('\n')}
+      
+      Candidate's latest response: ${userMessage}
+      
+      Rules:
+      1. Maintain context of the entire conversation
+      2. Evaluate the candidate's last response
+      3. Provide brief, constructive feedback
+      4. Ask the next question at ${difficulty} level
+      5. Keep responses focused and clear
+      
+      Format your response as:
+      [Feedback]: (brief feedback on the last answer)
+      [Next Question]: (your next question)`;
 
-      if (!response.ok) {
-        throw new Error(`API call failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        const message = data.candidates[0].content.parts[0].text;
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: message
-        }]);
-        if (isVoiceMode) {
-          speakText(message);
-        }
-      } else {
-        throw new Error('Invalid API response structure');
+      const message = await makeApiCall(prompt);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: message
+      }]);
+      if (isVoiceMode) {
+        speakText(message);
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -335,98 +299,48 @@ const MockViva = () => {
   const generateReport = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `You are a C++ technical interviewer. Analyze this ${difficulty} level interview about ${selectedTopic}.
-              
-              Interview conversation:
-              ${messages.map(msg => `${msg.role === 'assistant' ? 'Interviewer' : 'Candidate'}: ${msg.content}`).join('\n')}
-              
-              Generate a performance report in valid JSON format with this exact structure:
-              {
-                "strengths": ["strength1", "strength2"],
-                "improvements": ["area1", "area2"],
-                "overallPerformance": "detailed feedback",
-                "score": 75
-              }
-              
-              Rules:
-              1. Response must be valid JSON
-              2. Score should be between 0-100
-              3. Consider the difficulty level (${difficulty}) when scoring
-              4. Include at least 2 strengths and 2 improvements
-              5. Provide detailed overall performance feedback`
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            candidateCount: 1,
-            maxOutputTokens: 1024,
-            topP: 0.8,
-            topK: 40
-          },
-          safetySettings: [
-            {
-              category: "HARM_CATEGORY_HARASSMENT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_HATE_SPEECH",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            }
-          ]
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`API call failed: ${response.status}`);
+      const prompt = `You are a C++ technical interviewer. Analyze this ${difficulty} level interview about ${selectedTopic}.
+      
+      Interview conversation:
+      ${messages.map(msg => `${msg.role === 'assistant' ? 'Interviewer' : 'Candidate'}: ${msg.content}`).join('\n')}
+      
+      Generate a performance report in valid JSON format with this exact structure:
+      {
+        "strengths": ["strength1", "strength2"],
+        "improvements": ["area1", "area2"],
+        "overallPerformance": "detailed feedback",
+        "score": 75
       }
+      
+      Rules:
+      1. Response must be valid JSON
+      2. Score should be between 0-100
+      3. Consider the difficulty level (${difficulty}) when scoring
+      4. Include at least 2 strengths and 2 improvements
+      5. Provide detailed overall performance feedback`;
 
-      const data = await response.json();
-      if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        const reportText = data.candidates[0].content.parts[0].text;
-        try {
-          // Clean the response text
-          const cleanedText = reportText
-            .replace(/```json\n?|\n?```/g, '')  // Remove code blocks
-            .replace(/[\u201C\u201D]/g, '"')    // Replace smart quotes
-            .trim();
-          
-          const reportData = JSON.parse(cleanedText);
-          
-          // Validate report structure
-          if (!Array.isArray(reportData.strengths) || reportData.strengths.length < 1 ||
-              !Array.isArray(reportData.improvements) || reportData.improvements.length < 1 ||
-              typeof reportData.overallPerformance !== 'string' || 
-              typeof reportData.score !== 'number' ||
-              reportData.score < 0 || reportData.score > 100) {
-            throw new Error('Invalid report structure');
-          }
-          
-          setReport(reportData);
-          setIsEnded(true);
-          savePastSession(reportData.score);
-        } catch (error) {
-          console.error('Error parsing report:', error);
-          throw new Error('Failed to parse performance report');
-        }
-      } else {
-        throw new Error('Invalid API response structure');
+      const reportText = await makeApiCall(prompt);
+      
+      // Clean the response text
+      const cleanedText = reportText
+        .replace(/```json\n?|\n?```/g, '')  // Remove code blocks
+        .replace(/[\u201C\u201D]/g, '"')    // Replace smart quotes
+        .trim();
+      
+      const reportData = JSON.parse(cleanedText);
+      
+      // Validate report structure
+      if (!Array.isArray(reportData.strengths) || reportData.strengths.length < 1 ||
+          !Array.isArray(reportData.improvements) || reportData.improvements.length < 1 ||
+          typeof reportData.overallPerformance !== 'string' || 
+          typeof reportData.score !== 'number' ||
+          reportData.score < 0 || reportData.score > 100) {
+        throw new Error('Invalid report structure');
       }
+      
+      setReport(reportData);
+      setIsEnded(true);
+      savePastSession(reportData.score);
     } catch (error) {
       console.error('Error generating report:', error);
       setMessages(prev => [...prev, {
