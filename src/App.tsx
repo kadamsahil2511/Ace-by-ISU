@@ -10,6 +10,7 @@ import CourseDashboard from './components/CourseDashboard';
 import CppDashboard from './components/CppDashboard';
 import CodingEnvironment from './components/CodingEnvironment';
 import MockViva from './components/MockViva';
+import DialogflowMessenger from './components/DialogflowMessenger';
 
 function App() {
   const handleLogout = () => {
@@ -124,6 +125,9 @@ function App() {
             </div>
           </div>
         </footer>
+
+        {/* Add DialogflowMessenger */}
+        <DialogflowMessenger />
       </div>
     </Router>
   );
