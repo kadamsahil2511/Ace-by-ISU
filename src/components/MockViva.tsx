@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import BackButton from './BackButton';
 import { Send, Book, XCircle, Mic, MicOff, Volume2, VolumeX, Clock, History, Brain } from 'lucide-react';
 
@@ -36,7 +36,7 @@ if (!API_KEY) {
   console.error('Missing Gemini API key. Make sure VITE_GEMINI_API_KEY is set in your environment variables.');
 }
 
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${API_KEY}`;
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
 
 const topics = [
   'C++ Basics',

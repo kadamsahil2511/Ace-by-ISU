@@ -17,7 +17,7 @@ interface Question {
 }
 
 // Use the environment variable
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`;
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`;
 
 const generatePrompt = `Create a beginner-friendly C++ programming question with the following format:
 {

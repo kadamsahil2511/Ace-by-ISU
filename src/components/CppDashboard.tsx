@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import BackButton from './BackButton';
 
 interface Message {
@@ -22,15 +22,51 @@ interface CoursePreferences {
 }
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${API_KEY}`;
 
-const scrollbarHideStyles = `
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none;  /* Internet Explorer 10+ */
-  &::-webkit-scrollbar {
-    display: none; /* Chrome, Safari, Opera */
+if (!API_KEY) {
+  console.error('Missing Gemini API key. Make sure VITE_GEMINI_API_KEY is set in your environment variables.');
+}
+
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
+
+// Helper function to make API calls with retry logic
+const makeApiCall = async (payload: any, maxRetries = 2) => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.status === 429 && attempt < maxRetries) {
+        // Wait before retrying
+        const waitTime = 2000 * attempt;
+        console.log(`Rate limited. Retrying in ${waitTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
+      }
+
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        throw new Error('Invalid API response structure');
+      }
+
+      return data.candidates[0].content.parts[0].text;
+    } catch (error) {
+      if (attempt === maxRetries) {
+        throw error;
+      }
+    }
   }
-`;
+};
 
 const CppDashboard = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -46,75 +82,71 @@ const CppDashboard = () => {
     }
   }, []);
 
-  const formatResponse = (text: string) => {
-    // Remove any JSON formatting if present
-    try {
-      const parsed = JSON.parse(text);
-      return typeof parsed === 'string' ? parsed : JSON.stringify(parsed, null, 2);
-    } catch {
-      // If it's not JSON, return the text as is
-      return text;
-    }
-  };
+
 
   const generateInitialPlan = async (preferences: CoursePreferences) => {
-    setIsLoading(true);
-    try {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            role: 'user',
-            parts: [{
-              text: 'Based on my background, create a detailed C++ study roadmap with topics, subtopics, and estimated completion time. Format the response in a clear, readable way.'
-            }]
-          }],
-          systemInstruction: {
-            role: 'user',
-            parts: [{
-              text: `You're a C++ tutor who's job is to design course and teach as per the background sent by the user. 
-              Provide responses in clear text format, not JSON.
-              Student Background:
-              - Programming Experience: ${preferences.programming_experience}
-              - C++ Knowledge Level: ${preferences.cpp_level}
-              - Available Study Time: ${preferences.study_time}
-              - Learning Goal: ${preferences.learning_goal}
-              - Preferred Learning Style: ${preferences.preferred_learning}`
-            }]
-          },
-          generationConfig: {
-            temperature: 1,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 8192,
-            responseMimeType: "text/plain"
-          }
-        })
-      });
-
-      const data = await response.json();
-      if (data.candidates && data.candidates[0].content) {
-        const content = formatResponse(data.candidates[0].content.parts[0].text);
-        setStudyPlan({
-          title: 'Your Personalized C++ Learning Path',
-          description: content,
-          topics: content.split('\n').filter(line => line.trim().startsWith('-')),
-          estimatedTime: preferences.study_time
-        });
-
-        setMessages([{
-          role: 'assistant',
-          content: "Hello! I'm your C++ tutor. I've created a personalized study plan based on your background. Feel free to ask any questions about C++ concepts, and I'll help you understand them better!"
-        }]);
-      }
-    } catch (error) {
-      console.error('Error generating study plan:', error);
+    if (!API_KEY) {
       setMessages([{
         role: 'assistant',
-        content: 'I apologize, but I encountered an error while generating your study plan. Please try again or contact support.'
+        content: 'Error: Missing API key. Please contact support.'
+      }]);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const payload = {
+        contents: [{
+          parts: [{
+            text: `Create a detailed C++ study roadmap based on my background. Format the response in a clear, readable way with sections and bullet points.
+            
+            My Background:
+            - Programming Experience: ${preferences.programming_experience}
+            - C++ Knowledge Level: ${preferences.cpp_level}  
+            - Available Study Time: ${preferences.study_time}
+            - Learning Goal: ${preferences.learning_goal}
+            - Preferred Learning Style: ${preferences.preferred_learning}
+            
+            Please provide a structured roadmap with topics, estimated time, and learning resources.`
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.9,
+          maxOutputTokens: 2048,
+          candidateCount: 1
+        }
+      };
+
+      const content = await makeApiCall(payload);
+      
+      setStudyPlan({
+        title: 'Your Personalized C++ Learning Path',
+        description: content,
+        topics: content.split('\n').filter((line: string) => line.trim().startsWith('-') || line.trim().startsWith('•')),
+        estimatedTime: preferences.study_time
+      });
+
+      setMessages([{
+        role: 'assistant',
+        content: "Hello! I'm your C++ tutor. I've created a personalized study plan based on your background. Feel free to ask any questions about C++ concepts, and I'll help you understand them better!"
+      }]);
+    } catch (error) {
+      console.error('Error generating study plan:', error);
+      let errorMessage = 'I apologize, but I encountered an error while generating your study plan.';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('429')) {
+          errorMessage = 'The AI service is currently busy due to high demand. Please wait a moment and try again.';
+        } else if (error.message.includes('API call failed')) {
+          errorMessage = 'There was a problem connecting to the AI service. Please check your connection and try again.';
+        }
+      }
+      
+      setMessages([{
+        role: 'assistant',
+        content: errorMessage + ' Please contact support if the issue persists.'
       }]);
     }
     setIsLoading(false);
@@ -122,6 +154,14 @@ const CppDashboard = () => {
 
   const sendMessage = async () => {
     if (!inputMessage.trim()) return;
+
+    if (!API_KEY) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Error: Missing API key. Please contact support.'
+      }]);
+      return;
+    }
 
     const newMessage: Message = {
       role: 'user',
@@ -133,9 +173,6 @@ const CppDashboard = () => {
     setIsLoading(true);
 
     try {
-      const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
-      const preferences = currentUser?.coursePreferences?.cpp;
-
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
@@ -144,45 +181,43 @@ const CppDashboard = () => {
         body: JSON.stringify({
           contents: [
             ...messages.map(msg => ({
-              role: msg.role,
-              parts: [{ text: msg.content }]
+              parts: [{ text: `${msg.role === 'assistant' ? 'Assistant' : 'User'}: ${msg.content}` }]
             })),
             {
-              role: 'user',
-              parts: [{ text: inputMessage }]
+              parts: [{ text: `User: ${inputMessage}` }]
             }
           ],
-          systemInstruction: {
-            role: 'user',
-            parts: [{
-              text: `You're a C++ tutor who's job is to design course and teach as per the background sent by the user.
-              Format your responses in clear text, not JSON.
-              Use proper formatting with line breaks and bullet points where appropriate.`
-            }]
-          },
           generationConfig: {
-            temperature: 1,
+            temperature: 0.7,
             topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 8192,
-            responseMimeType: "text/plain"
+            topP: 0.9,
+            maxOutputTokens: 2048,
+            candidateCount: 1
           }
         })
       });
 
-      const data = await response.json();
-      if (data.candidates && data.candidates[0].content) {
-        const formattedContent = formatResponse(data.candidates[0].content.parts[0].text);
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: formattedContent
-        }]);
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.status} ${response.statusText}`);
       }
+
+      const data = await response.json();
+      console.log('Chat API Response:', data);
+
+      if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        throw new Error('Invalid API response structure');
+      }
+
+      const responseContent = data.candidates[0].content.parts[0].text;
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: responseContent
+      }]);
     } catch (error) {
       console.error('Error sending message:', error);
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'I apologize, but I encountered an error. Please try again or contact support.'
+        content: `I apologize, but I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again or contact support.`
       }]);
     }
     setIsLoading(false);

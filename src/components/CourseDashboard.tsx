@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import BackButton from './BackButton';
 
 interface Message {
@@ -36,11 +36,10 @@ const CourseDashboard = () => {
     const initializeChat = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent', {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.REACT_APP_GEMINI_API_KEY}`
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({
             contents: [
@@ -112,11 +111,10 @@ const CourseDashboard = () => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent', {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.REACT_APP_GEMINI_API_KEY}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           contents: [
